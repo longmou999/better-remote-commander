@@ -5,6 +5,7 @@
 - `allowedDirectories` is enforced by BRC file APIs; it is **not a shell sandbox**. Shell/process tools can access paths the OS user can access.
 - `blockedCommands` is a best-effort convenience guard, not a security boundary: shell syntax and interactive processes make command blacklists inherently incomplete. Use OS permissions, device pause/revocation, and client-side approval policy for hard boundaries.
 - Remote BRC `read_file` is local-file only. Web/URL retrieval belongs to the MCP client web tool, which avoids turning the desktop agent into an SSRF-capable web proxy.
+- Remote BRC does not publish `set_config_value` or `get_recent_tool_calls`: an AI session cannot rewrite its own agent safety/behavior configuration or export historical tool-call payloads through MCP.
 - The relay never stores device tokens or user passwords in plaintext (SHA-256 / scrypt). OAuth access tokens live 1 h, refresh tokens 30 d and rotate on use.
 - Agents only make outbound connections. The relay is the only public endpoint.
 - Per-call audit stores tool name, args hash, device, client, result and latency; arguments and outputs are not stored by the relay.
