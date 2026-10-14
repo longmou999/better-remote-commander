@@ -15,9 +15,11 @@ const argsHash = (args: unknown) => createHash('sha256').update(JSON.stringify(a
 
 export function listUserDevices(hub: DeviceHub, store: SqliteStore, userId: string) {
   const online = new Set(hub.list(userId).map((d) => d.deviceId));
-  return store.listDevices(userId).map((d) => ({
-    deviceId: d.device_id, name: d.name, platform: d.platform, online: online.has(d.device_id), paused: !!d.paused, lastSeen: d.last_seen,
-  }));
+  return store.listDevices(userId)
+    .map((d) => ({
+      deviceId: d.device_id, name: d.name, platform: d.platform, online: online.has(d.device_id), paused: !!d.paused, lastSeen: d.last_seen,
+    }))
+    .sort((a, b) => a.deviceId < b.deviceId ? -1 : a.deviceId > b.deviceId ? 1 : 0);
 }
 
 export async function invokeTool(

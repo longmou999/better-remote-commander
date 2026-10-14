@@ -8,6 +8,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: unknown;
+  outputSchema?: unknown;
   annotations?: Record<string, unknown>;
 }
 
@@ -32,6 +33,7 @@ export interface ContentBlock {
 
 export interface ToolResult {
   content: ContentBlock[];
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
 

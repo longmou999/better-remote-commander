@@ -6,6 +6,7 @@ import * as handlers from './core/handlers/index.js';
 import { getConfig, setConfigValue } from './core/tools/config.js';
 import { getUsageStats } from './core/tools/usage.js';
 import { buildToolDefinitions, EXCLUDED_TOOLS, type ToolDefinition } from './core/tool-definitions.js';
+import { curatedToolMetadata } from 'brc-shared';
 import { usageTracker } from './core/utils/usageTracker.js';
 import type { ToolResult } from 'brc-shared';
 
@@ -46,7 +47,9 @@ let cachedDefs: ToolDefinition[] | null = null;
 
 export function listTools(): ToolDefinition[] {
   if (!cachedDefs) {
-    cachedDefs = buildToolDefinitions().filter((t) => t.name in TOOL_HANDLERS && !EXCLUDED_TOOLS.has(t.name));
+    cachedDefs = buildToolDefinitions()
+      .filter((t) => t.name in TOOL_HANDLERS && !EXCLUDED_TOOLS.has(t.name))
+      .map(curatedToolMetadata);
   }
   return cachedDefs;
 }
@@ -59,6 +62,12 @@ export async function callTool(name: string, args: Args): Promise<ToolResult> {
   const handler = TOOL_HANDLERS[name];
   if (!handler) {
     return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
+  }
+  if (name === 'read_file' && args?.isUrl === true) {
+    return {
+      content: [{ type: 'text', text: 'Remote BRC read_file accepts local paths only. Use the client web tool for URLs.' }],
+      isError: true,
+    };
   }
   try {
     const result = (await handler(args ?? {})) as ToolResult;

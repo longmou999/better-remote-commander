@@ -15,6 +15,8 @@
 ## Flow
 Client -> relay (`/mcp`) -> OAuth bearer -> device router -> agent (WS) -> tool -> result back. Audit row per call.
 
+MCP stays stateless at the relay boundary. Long operations use explicit existing handles such as process PID or searchId; BRC does not add a second task/session state machine. MCP Tasks are only worth considering after a real workflow requires cross-call task lifecycle semantics that these handles cannot express.
+
 ## Deployment modes (same image, config only)
 | Profile | Relay runs | Public URL | Agent link |
 |---------|-----------|------------|------------|
@@ -40,7 +42,7 @@ Agents anywhere connect outbound only; several agents per relay; `deviceId` sele
 ## Security
 - Agent never listens on a port; all connections outbound
 - Device tokens revocable from relay dashboard; refresh via OAuth
-- Blocked-commands list + allowedDirectories enforced on the agent side
+- Agent-side file APIs enforce allowedDirectories; blockedCommands is best-effort convenience only, not a shell sandbox. Hard boundaries come from OS permissions plus device/client pause or revocation.
 - Audit log of every call (tool, args hash, device, timestamp) in store
 
 

@@ -67,7 +67,8 @@ export function buildRelay(cfg: RelayConfig, log: (level: string, msg: string) =
   const publicUrl = new URL(cfg.publicUrl);
 
   const app = express();
-  app.set('trust proxy', cfg.trustProxy);
+  // The Funnel proxy is local; do not trust arbitrary forwarded client IP headers.
+  app.set('trust proxy', cfg.trustProxy ? 'loopback' : false);
   app.disable('x-powered-by');
   app.use(cookieParser());
   app.use(express.urlencoded({ extended: false, limit: '64kb' }));

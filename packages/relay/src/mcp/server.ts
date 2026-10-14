@@ -4,6 +4,7 @@
  * each augmented with an optional `deviceId` argument. Invocation goes through invoke.ts.
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { curatedToolMetadata } from 'brc-shared';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { DeviceHub } from '../device-hub.js';
 import type { SqliteStore } from '../store/sqlite.js';
@@ -25,35 +26,74 @@ export function withDeviceId(schema: unknown): Record<string, unknown> {
 
 export const LIST_DEVICES_TOOL = {
   name: 'list_devices',
-  description: 'List devices paired to this relay, with online state and ids. Call this first when more than one device may be connected.',
-  inputSchema: { type: 'object', properties: {} },
-  annotations: { title: 'List devices', readOnlyHint: true },
+  description: 'List devices paired to this relay, with online/paused state and stable device ids.',
+  inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      devices: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            deviceId: { type: 'string' },
+            name: { type: 'string' },
+            platform: { type: ['string', 'null'] },
+            online: { type: 'boolean' },
+            paused: { type: 'boolean' },
+            lastSeen: { type: ['number', 'null'] },
+          },
+          required: ['deviceId', 'name', 'online', 'paused'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['devices'],
+    additionalProperties: false,
+  },
+  annotations: {
+    title: 'List devices',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
 };
 
 /** Live tool set for a user: union across online, non-paused devices (with deviceId prop). */
 export function liveTools(hub: DeviceHub, store: SqliteStore, userId: string) {
   const online = hub.list(userId).filter((d) => !store.getDevice(d.deviceId)?.paused);
-  const merged = new Map<string, { name: string; description: string; inputSchema: unknown; annotations?: Record<string, unknown> }>();
-  for (const d of online) for (const t of hub.get(d.deviceId)?.tools ?? []) if (!merged.has(t.name)) merged.set(t.name, { ...t, inputSchema: withDeviceId(t.inputSchema) });
-  return { online: online.length, tools: [...merged.values()] };
+  const merged = new Map<string, { name: string; description: string; inputSchema: unknown; outputSchema?: unknown; annotations?: Record<string, unknown> }>();
+  for (const d of online) for (const t of hub.get(d.deviceId)?.tools ?? []) if (!merged.has(t.name)) merged.set(t.name, { ...curatedToolMetadata(t), inputSchema: withDeviceId(t.inputSchema) });
+  const tools = [...merged.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  return { online: online.length, tools };
 }
 
 export function createMcpServer(hub: DeviceHub, store: SqliteStore, ctx: McpContext, relayVersion: string): Server {
   const server = new Server({ name: 'brc', version: relayVersion }, { capabilities: { tools: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const { online, tools } = liveTools(hub, store, ctx.userId);
-    return { tools: [{ ...LIST_DEVICES_TOOL, description: `${LIST_DEVICES_TOOL.description} ${online} device(s) currently online.` }, ...tools] };
+    const { tools } = liveTools(hub, store, ctx.userId);
+    return { tools: [LIST_DEVICES_TOOL, ...tools] };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args } = req.params;
     if (name === 'list_devices') {
-      return { content: [{ type: 'text', text: JSON.stringify({ devices: listUserDevices(hub, store, ctx.userId) }, null, 2) }] };
+      const structuredContent = { devices: listUserDevices(hub, store, ctx.userId) };
+      return {
+        content: [{ type: 'text', text: JSON.stringify(structuredContent, null, 2) }],
+        structuredContent,
+      };
     }
     const out = await invokeTool(hub, store, ctx, name, args as Record<string, unknown> | undefined);
     if (!out.ok) return { content: [{ type: 'text', text: out.message }], isError: true };
-    return { content: out.result.content, isError: out.result.isError ?? false, _meta: { deviceId: out.deviceId, deviceName: out.deviceName } } as never;
+    return {
+      content: out.result.content,
+      ...(out.result.structuredContent ? { structuredContent: out.result.structuredContent } : {}),
+      isError: out.result.isError ?? false,
+      _meta: { deviceId: out.deviceId, deviceName: out.deviceName },
+    } as never;
   });
 
   return server;
