@@ -31,7 +31,7 @@ export interface ToolDefinition {
 }
 
 /** Upstream-only onboarding/UI tools; never exposed by Better Remote Commander (BRC). */
-export const EXCLUDED_TOOLS = new Set(['give_feedback_to_desktop_commander', 'get_prompts', 'track_ui_event', 'set_config_value', 'get_recent_tool_calls']);
+export const EXCLUDED_TOOLS = new Set(['give_feedback_to_desktop_commander', 'get_prompts', 'track_ui_event', 'set_config_value', 'get_recent_tool_calls', 'prepare_file_transfer', 'send_file_transfer', 'receive_file_transfer']);
 
 export function buildToolDefinitions(): ToolDefinition[] {
   const allTools: ToolDefinition[] = [
