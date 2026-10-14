@@ -22,10 +22,6 @@ const TOOL_POLICIES: Record<string, Policy> = {
     description: 'Read the paired device agent configuration, including its default shell, directory filters, command block list, and diagnostics. Does not expose relay authentication secrets.',
     readOnly: true,
   },
-  set_config_value: {
-    description: 'Change a paired device agent configuration key, such as defaultShell, blockedCommands, allowedDirectories, or file limits. Empty allowedDirectories removes the file-tool path filter; this filter is not a shell sandbox.',
-    readOnly: false, destructive: true,
-  },
   read_file: {
     description: 'Read a local file on a paired device with optional offset/length paging. Supports text, PDFs, DOCX, spreadsheets and images. Relative paths depend on the agent working directory; use the client web tool for URLs.',
     readOnly: true,
@@ -108,10 +104,6 @@ const TOOL_POLICIES: Record<string, Policy> = {
   },
   get_usage_stats: {
     description: 'Read local BRC agent tool usage statistics, failure counts and recent performance summary. Does not alter configuration.',
-    readOnly: true,
-  },
-  get_recent_tool_calls: {
-    description: 'Read recent BRC tool call history recorded on a paired device, with parameters and truncated outputs. History may contain sensitive paths or command arguments; do not share it unnecessarily.',
     readOnly: true,
   },
   prepare_file_transfer: {
