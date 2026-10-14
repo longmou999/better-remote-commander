@@ -7,7 +7,7 @@ import { curatedToolMetadata } from 'brc-shared';
 test('published BRC tool metadata is reviewed and compact', () => {
   const original = buildToolDefinitions();
   const published = listTools();
-  assert.equal(published.length, 27);
+  assert.equal(published.length, 25);
   assert.equal(new Set(published.map((t) => t.name)).size, published.length);
   const originals = new Map(original.map((t) => [t.name, t]));
   for (const tool of published) {
@@ -38,12 +38,15 @@ test('risk metadata matches remote computer-control semantics', () => {
   for (const name of ['start_process', 'interact_with_process', 'send_file_transfer', 'receive_file_transfer']) {
     assert.equal(defs.get(name)?.annotations?.openWorldHint, true, name);
   }
-  for (const name of ['read_process_output', 'list_directory', 'get_config', 'get_recent_tool_calls', 'read_file']) {
+  for (const name of ['read_process_output', 'list_directory', 'get_config', 'read_file']) {
     assert.equal(defs.get(name)?.annotations?.readOnlyHint, true, name);
   }
   assert.equal(defs.get('read_file')?.annotations?.openWorldHint, false);
   assert.equal(defs.get('send_file_transfer')?.annotations?.destructiveHint, false);
   assert.equal(defs.get('stop_search')?.annotations?.readOnlyHint, false);
+  for (const name of ['set_config_value', 'get_recent_tool_calls']) {
+    assert.equal(defs.has(name), false, name + ' must not be remotely published');
+  }
 });
 
 test('remote read_file rejects URL mode even if a caller bypasses the published schema', async () => {
