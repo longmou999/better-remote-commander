@@ -33,6 +33,9 @@ interface Pending {
   resolve: (r: ToolResult) => void;
   reject: (e: Error) => void;
   timer: NodeJS.Timeout;
+  socket: WebSocket;
+  deviceId: string;
+  tool: string;
 }
 
 export class DeviceHub {
@@ -78,12 +81,15 @@ export class DeviceHub {
 
       if (!deviceId) return; // ignore anything before hello
       const dev = this.devices.get(deviceId);
-      if (dev) dev.lastSeen = Date.now();
+      // Never accept responses or heartbeats from a socket replaced by a reconnect.
+      if (!dev || dev.socket !== socket) return;
+      dev.lastSeen = Date.now();
 
       if (msg.type === 'pong') return;
       if (msg.type === 'result') {
         const p = this.pending.get(msg.id);
-        if (!p) return;
+        // A call result must come from the exact socket it was sent through.
+        if (!p || p.socket !== socket) return;
         this.pending.delete(msg.id);
         clearTimeout(p.timer);
         if (msg.error) p.reject(new Error(`${msg.error.code}: ${msg.error.message}`));
@@ -92,6 +98,9 @@ export class DeviceHub {
     });
 
     socket.on('close', () => {
+      // A disconnected socket cannot deliver a reliable outcome, even if the
+      // same device reconnects. Do not wait for the full call timeout.
+      this.rejectSocketPending(socket, 'device disconnected; command outcome unknown');
       if (deviceId && this.devices.get(deviceId)?.socket === socket) {
         this.devices.delete(deviceId);
         this.log('info', `device offline: ${deviceId}`);
@@ -102,7 +111,7 @@ export class DeviceHub {
   /** Route a tool call to a device. Throws if offline or timed out. */
   call(deviceId: string, tool: string, args: Record<string, unknown>, opts: { client?: { name?: string; version?: string }; timeoutMs?: number } = {}): Promise<ToolResult> {
     const dev = this.devices.get(deviceId);
-    if (!dev) return Promise.reject(new Error(`DEVICE_OFFLINE: ${deviceId}`));
+    if (!dev || dev.socket.readyState !== dev.socket.OPEN) return Promise.reject(new Error(`DEVICE_OFFLINE: ${deviceId}`));
     if (!dev.tools.some((t) => t.name === tool)) return Promise.reject(new Error(`UNKNOWN_TOOL: ${tool}`));
     const id = randomUUID();
     const timeoutMs = opts.timeoutMs ?? DEFAULTS.callTimeoutMs;
@@ -111,8 +120,18 @@ export class DeviceHub {
         this.pending.delete(id);
         reject(new Error(`CALL_TIMEOUT: ${tool} after ${timeoutMs} ms`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
-      this.sendTo(dev.socket, { type: 'call', id, tool, args, client: opts.client, timeoutMs });
+      this.pending.set(id, { resolve, reject, timer, socket: dev.socket, deviceId, tool });
+      const failSend = (reason: string) => {
+        const pending = this.pending.get(id);
+        if (!pending || pending.socket !== dev.socket) return;
+        this.pending.delete(id);
+        clearTimeout(pending.timer);
+        reject(new Error(reason));
+      };
+      if (!this.sendTo(dev.socket, { type: 'call', id, tool, args, client: opts.client, timeoutMs },
+        () => failSend(`CALL_SEND_FAILED: ${tool} on ${deviceId}; command outcome unknown`))) {
+        failSend(`CALL_UNAVAILABLE: ${tool} on ${deviceId}; command not sent`);
+      }
     });
   }
 
@@ -146,13 +165,32 @@ export class DeviceHub {
     }
   }
 
-  private sendTo(socket: WebSocket, msg: RelayMessage): void {
-    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
+  /** Fail outstanding requests immediately instead of leaving timeout-only promises. */
+  private rejectSocketPending(socket: WebSocket, reason: string): void {
+    for (const [id, pending] of this.pending) {
+      if (pending.socket !== socket) continue;
+      this.pending.delete(id);
+      clearTimeout(pending.timer);
+      pending.reject(new Error(`CALL_INTERRUPTED: ${pending.tool} on ${pending.deviceId}: ${reason}`));
+    }
+  }
+
+  private sendTo(socket: WebSocket, msg: RelayMessage, onError?: (error: Error) => void): boolean {
+    if (socket.readyState !== socket.OPEN) return false;
+    try {
+      socket.send(JSON.stringify(msg), (error?: Error) => {
+        if (error) onError?.(error);
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   close(): void {
     clearInterval(this.heartbeat);
     for (const d of this.devices.values()) d.socket.close(1001, 'relay shutdown');
     for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('RELAY_SHUTDOWN')); }
+    this.pending.clear();
   }
 }

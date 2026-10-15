@@ -147,3 +147,69 @@ test('relay strips agent-supplied routing instructions and keeps tool schemas', 
   hub.close();
   store.close();
 });
+
+test('device hub: closing a socket immediately rejects its in-flight call', async () => {
+  const hub = new DeviceHub('test', () => {});
+  const socket = new FakeSocket();
+  hub.attach(socket, 'owner', 'dev1');
+  socket.recv(hello('dev1'));
+  const pending = hub.call('dev1', 'echo', {}, { timeoutMs: 10_000 });
+  assert.equal(socket.sent.filter((m) => m.type === 'call').length, 1);
+  socket.close(1006, 'connection lost');
+  await assert.rejects(pending, /CALL_INTERRUPTED: echo on dev1:.*outcome unknown/);
+  assert.equal(hub.resolveDefault('owner'), null);
+  hub.close();
+});
+
+test('device hub: responses from another device cannot satisfy an in-flight call', async () => {
+  const hub = new DeviceHub('test', () => {});
+  const first = new FakeSocket();
+  const second = new FakeSocket();
+  hub.attach(first, 'owner', 'dev1'); first.recv(hello('dev1'));
+  hub.attach(second, 'owner', 'dev2'); second.recv(hello('dev2'));
+  const pending = hub.call('dev1', 'echo', {}, { timeoutMs: 10_000 });
+  const id = first.sent.find((m) => m.type === 'call').id;
+  let settled = false;
+  void pending.then(() => { settled = true; }, () => { settled = true; });
+  second.recv({ type: 'result', id, result: { content: [{ type: 'text', text: 'wrong device' }] } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  first.recv({ type: 'result', id, result: { content: [{ type: 'text', text: 'right device' }] } });
+  assert.equal((await pending).content[0].text, 'right device');
+  hub.close();
+});
+
+test('device hub: reconnect rejects old calls, ignores stale responses, keeps new calls', async () => {
+  const hub = new DeviceHub('test', () => {});
+  const oldSocket = new FakeSocket();
+  hub.attach(oldSocket, 'owner', 'dev1'); oldSocket.recv(hello('dev1'));
+  const oldCall = hub.call('dev1', 'echo', {}, { timeoutMs: 10_000 });
+  const newSocket = new FakeSocket();
+  hub.attach(newSocket, 'owner', 'dev1'); newSocket.recv(hello('dev1'));
+  await assert.rejects(oldCall, /CALL_INTERRUPTED/);
+  assert.equal(hub.get('dev1')?.socket, newSocket);
+  const newCall = hub.call('dev1', 'echo', {}, { timeoutMs: 10_000 });
+  const id = newSocket.sent.find((m) => m.type === 'call').id;
+  let settled = false;
+  void newCall.then(() => { settled = true; }, () => { settled = true; });
+  oldSocket.recv({ type: 'result', id, result: { content: [{ type: 'text', text: 'stale' }] } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  newSocket.recv({ type: 'result', id, result: { content: [{ type: 'text', text: 'current' }] } });
+  assert.equal((await newCall).content[0].text, 'current');
+  hub.close();
+});
+
+test('device hub: closed and failed sockets reject calls instead of silently dropping them', async () => {
+  const hub = new DeviceHub('test', () => {});
+  const socket = new FakeSocket();
+  hub.attach(socket, 'owner', 'dev1'); socket.recv(hello('dev1'));
+  socket.readyState = 3; // Simulate a close not yet delivered as an event.
+  await assert.rejects(hub.call('dev1', 'echo', {}), /DEVICE_OFFLINE/);
+  socket.readyState = socket.OPEN;
+  socket.send = () => { throw new Error('send failed'); };
+  await assert.rejects(hub.call('dev1', 'echo', {}, { timeoutMs: 10_000 }), /CALL_UNAVAILABLE:.*command not sent/);
+  socket.send = (_raw, callback) => { setImmediate(() => callback(new Error('async send failure'))); };
+  await assert.rejects(hub.call('dev1', 'echo', {}, { timeoutMs: 10_000 }), /CALL_SEND_FAILED:.*outcome unknown/);
+  hub.close();
+});

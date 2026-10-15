@@ -14,6 +14,7 @@
 
 ## Flow
 Client -> relay (`/mcp`) -> OAuth bearer -> device router -> agent (WS) -> tool -> result back. Audit row per call.
+An in-flight call belongs to its original WebSocket. Disconnects and send failures fail promptly with an unknown-outcome error; mutating calls must be read back rather than blindly replayed.
 
 MCP stays stateless at the relay boundary. Long operations use explicit existing handles such as process PID or searchId; BRC does not add a second task/session state machine. MCP Tasks are only worth considering after a real workflow requires cross-call task lifecycle semantics that these handles cannot express.
 

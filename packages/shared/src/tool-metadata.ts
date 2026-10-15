@@ -27,7 +27,7 @@ const TOOL_POLICIES: Record<string, Policy> = {
     readOnly: true,
   },
   read_multiple_files: {
-    description: 'Read several paths on a paired device in one request. Returns individual results and errors without stopping at the first failed path. Local file reads follow the agent directory configuration.',
+    description: 'Read several known local paths in one remote request, reducing round trips versus individual reads. Returns per-file content and errors; failures do not stop other reads. File access follows the agent directory configuration.',
     readOnly: true,
   },
   write_file: {
@@ -75,7 +75,7 @@ const TOOL_POLICIES: Record<string, Policy> = {
     readOnly: true,
   },
   start_process: {
-    description: 'Start a command-line process on a paired device (DOOM runs Windows PowerShell by default). Returns a process ID and initial output; long-running processes can be followed separately. Arbitrary commands may edit files, start programs, or access networks.',
+    description: 'Start a command-line process on a paired device. Requires timeout_ms in milliseconds; DOOM defaults to Windows PowerShell. Returns PID, state and initial output; read_process_output can follow long-running tasks. Commands may modify files or access networks.',
     readOnly: false, destructive: true, openWorld: true,
   },
   read_process_output: {
