@@ -5,7 +5,6 @@
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolDefinition } from 'brc-shared';
 import type { DeviceHub } from '../device-hub.js';
 import type { SqliteStore } from '../store/sqlite.js';
 import { invokeTool, listUserDevices, type InvokeContext } from './invoke.js';
@@ -54,13 +53,7 @@ export function liveTools(hub: DeviceHub, store: SqliteStore, userId: string, de
   const selected = deviceId
     ? routable.filter((d) => d.deviceId === deviceId)
     : routable.length === 1 ? routable : [];
-  const merged = new Map<string, ToolDefinition>();
-  for (const d of selected) {
-    for (const tool of hub.get(d.deviceId)?.tools ?? []) {
-      if (!merged.has(tool.name)) merged.set(tool.name, tool);
-    }
-  }
-  const tools = [...merged.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const tools = selected.length === 1 ? (hub.get(selected[0].deviceId)?.tools ?? []) : [];
   return { online: routable.length, tools };
 }
 
