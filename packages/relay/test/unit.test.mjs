@@ -111,7 +111,7 @@ test('device hub: hello/welcome, call/result matching, protocol + id checks, def
   hub.close();
 });
 
-test('relay preserves standard MCP tool metadata and adds only device routing', async () => {
+test('relay publishes standard MCP tools without rewriting metadata or schemas', async () => {
   const { liveTools, LIST_DEVICES_TOOL } = await import('../dist/mcp/server.js');
   const store = new SqliteStore(':memory:');
   const user = store.upsertUser('metadata-tester', 'pw');
@@ -136,23 +136,50 @@ test('relay preserves standard MCP tool metadata and adds only device routing', 
   socket.recv(hello('meta-dev', [standardTool]));
   const { online, tools } = liveTools(hub, store, user.id);
   assert.equal(online, 1);
-  assert.equal(tools.length, 1);
-  const published = tools[0];
-  assert.equal(published.name, standardTool.name);
-  assert.equal(published.title, standardTool.title);
-  assert.equal(published.description, standardTool.description);
-  assert.deepEqual(published.annotations, standardTool.annotations);
-  assert.deepEqual(published._meta, standardTool._meta);
-  assert.equal(published.inputSchema.$schema, schema.$schema);
-  assert.equal(published.inputSchema.additionalProperties, false);
-  assert.deepEqual(published.inputSchema.properties.command, schema.properties.command);
-  assert.ok(published.inputSchema.properties.deviceId);
+  assert.deepEqual(tools, [standardTool]);
+  assert.equal('deviceId' in tools[0].inputSchema.properties, false);
   assert.doesNotMatch(LIST_DEVICES_TOOL.description, /\d+ device\(s\)/);
   assert.equal(LIST_DEVICES_TOOL.annotations.readOnlyHint, true);
   assert.equal(LIST_DEVICES_TOOL.annotations.destructiveHint, false);
   assert.equal(LIST_DEVICES_TOOL.annotations.idempotentHint, true);
   assert.equal(LIST_DEVICES_TOOL.annotations.openWorldHint, false);
   assert.ok(LIST_DEVICES_TOOL.outputSchema);
+  hub.close();
+  store.close();
+});
+
+test('device routing stays outside standard MCP arguments', async () => {
+  const { invokeTool } = await import('../dist/mcp/invoke.js');
+  const store = new SqliteStore(':memory:');
+  const user = store.upsertUser('route-tester', 'pw');
+  store.issueDeviceToken('route-a', user.id, 'A', 'win32');
+  store.issueDeviceToken('route-b', user.id, 'B', 'win32');
+  const hub = new DeviceHub('test', () => {});
+  const a = new FakeSocket();
+  const b = new FakeSocket();
+  hub.attach(a, user.id, 'route-a'); a.recv(hello('route-a'));
+  hub.attach(b, user.id, 'route-b'); b.recv(hello('route-b'));
+
+  const ambiguous = await invokeTool(hub, store, { userId: user.id, clientId: 'test' }, 'echo', { x: 1 });
+  assert.equal(ambiguous.ok, false);
+  assert.equal(ambiguous.status, 409);
+  assert.match(ambiguous.message, /X-BRC-Device-ID/);
+
+  const pending = invokeTool(
+    hub,
+    store,
+    { userId: user.id, clientId: 'test', deviceId: 'route-b' },
+    'echo',
+    { deviceId: 'tool-owned-value', x: 2 },
+    { timeoutMs: 2000 },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const call = b.sent.find((m) => m.type === 'call');
+  assert.deepEqual(call.args, { deviceId: 'tool-owned-value', x: 2 });
+  b.recv({ type: 'result', id: call.id, result: { content: [{ type: 'text', text: 'ok' }] } });
+  const routed = await pending;
+  assert.equal(routed.ok, true);
+  assert.equal(routed.deviceId, 'route-b');
   hub.close();
   store.close();
 });

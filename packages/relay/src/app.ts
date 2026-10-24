@@ -242,7 +242,16 @@ export function buildRelay(cfg: RelayConfig, log: (level: string, msg: string) =
     const auth = (req as Request & { auth?: AuthInfo }).auth!;
     const userId = String(auth.extra?.userId ?? '');
     if (!userId) return res.status(401).json({ error: 'invalid_token' });
-    const server = createMcpServer(hub, store, { userId, clientId: auth.clientId }, cfg.relayVersion);
+    const requestedDevice = req.header('x-brc-device-id')?.trim();
+    if (requestedDevice && requestedDevice.length > 256) {
+      return res.status(400).json({ error: 'invalid_device_binding' });
+    }
+    const server = createMcpServer(
+      hub,
+      store,
+      { userId, clientId: auth.clientId, deviceId: requestedDevice || undefined },
+      cfg.relayVersion,
+    );
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => { void transport.close(); void server.close(); });
     try {

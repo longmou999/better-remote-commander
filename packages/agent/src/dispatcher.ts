@@ -54,7 +54,7 @@ export async function listTools(): Promise<ToolDefinition[]> {
   if (!cachedTools) {
     const standard = await (await backend()).listTools();
     // Preserve the upstream MCP Tool objects byte-for-byte at the semantic
-    // object level. Relay routing may add optional deviceId later.
+    // object level. Relay/device routing must stay outside tool schemas.
     cachedTools = standard.tools.map((tool) => ({ ...tool })) as ToolDefinition[];
   }
   return cachedTools.map((tool) => ({ ...tool }));

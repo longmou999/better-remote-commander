@@ -68,7 +68,7 @@ Agents anywhere connect outbound only; several agents per relay; `deviceId` sele
 - OAuth 2.0: PKCE S256, dynamic client registration, consent page, refresh rotation, revocation, `.well-known/oauth-authorization-server` + `oauth-protected-resource/mcp`
 - browser pages: /auth/login, /auth/consent, /device/verify, /device/approve, / (device list). Signed-cookie sessions (`BRC_SESSION_SECRET`)
 - device pairing: POST /device/start -> code; owner approves in browser; POST /device/poll -> device token. Agent stores it in `$BRC_HOME/device.json` (0600), re-pairs automatically on 401
-- /mcp: stateless Streamable HTTP, bearer-protected. Tools = list_devices + union of online agents' tools, each with optional `deviceId`; single online device is auto-selected; audit row per call
+- /mcp: stateless Streamable HTTP, bearer-protected. Tools = `list_devices` + the selected agent's standard MCP tools unchanged. A single routable device is auto-selected; multi-device self-hosted endpoints bind a target with `X-BRC-Device-ID`. Tool schemas/arguments/results are never rewritten for routing; audit row per call.
 - single-user v1: admin user from `BRC_ADMIN_USER` (default admin) / `BRC_ADMIN_PASSWORD` (required)
 - e2e: `node scripts/e2e-oauth.mjs <url> <user> <pass>` - 14/14 checks pass (discovery, DCR, PKCE, login, consent, token, initialize, tools/list, list_devices, start_process on device, 401 on bad token, refresh rotation)
 
