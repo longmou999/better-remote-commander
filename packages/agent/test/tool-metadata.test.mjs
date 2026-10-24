@@ -1,62 +1,75 @@
-import { test } from 'node:test';
+﻿import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { listTools, callTool } from '../dist/dispatcher.js';
-import { buildToolDefinitions } from '../dist/core/tool-definitions.js';
-import { curatedToolMetadata } from 'brc-shared';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import {
+  callTool, closeBackend, listTools, STANDARD_MCP_VERSION,
+} from '../dist/dispatcher.js';
 
-test('published BRC tool metadata is reviewed and compact', () => {
-  const original = buildToolDefinitions();
-  const published = listTools();
-  assert.equal(published.length, 22);
-  assert.equal(new Set(published.map((t) => t.name)).size, published.length);
-  const originals = new Map(original.map((t) => [t.name, t]));
-  for (const tool of published) {
-    const upstream = originals.get(tool.name);
-    assert.ok(upstream, 'Tool schema must originate from upstream');
-    if (tool.name === 'read_file') {
-      assert.ok(!('isUrl' in (tool.inputSchema.properties ?? {})), 'remote read_file must not publish URL fetch');
-    } else {
-      assert.deepEqual(tool.inputSchema, upstream.inputSchema, tool.name + ' input schema changed');
-    }
-    assert.ok(tool.description.length >= 35 && tool.description.length < 550, tool.name + ' description length');
-    assert.doesNotMatch(tool.description, /(?:ONLY correct|CANNOT access|ALWAYS use|NEVER use|MANDATORY|other tools (?:fail|are inferior))/i);
-    assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean', tool.name);
-    assert.equal(typeof tool.annotations?.destructiveHint, 'boolean', tool.name);
-    assert.equal(typeof tool.annotations?.openWorldHint, 'boolean', tool.name);
-  }
-  const oldSize = published.reduce((sum, t) => sum + originals.get(t.name).description.length, 0);
-  const newSize = published.reduce((sum, t) => sum + t.description.length, 0);
-  assert.ok(newSize < oldSize * 0.40, 'Descriptions must reduce metadata volume substantially');
+let directClient = null;
+
+async function directStandardTools() {
+  const require = createRequire(import.meta.url);
+  const packageJson = require.resolve('@wonderwhy-er/desktop-commander/package.json');
+  const entry = path.join(path.dirname(packageJson), 'dist', 'index.js');
+  directClient = new Client({ name: 'brc-parity-test', version: '1' }, { capabilities: {} });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [entry],
+    stderr: 'ignore',
+  });
+  await directClient.connect(transport);
+  return (await directClient.listTools()).tools;
+}
+
+after(async () => {
+  await closeBackend();
+  if (directClient) await directClient.close();
 });
 
-test('risk metadata matches remote computer-control semantics', () => {
-  const defs = new Map(listTools().map((t) => [t.name, t]));
-  for (const name of ['start_process', 'interact_with_process', 'write_file', 'edit_block', 'kill_process', 'receive_file_transfer']) {
-    assert.equal(defs.get(name)?.annotations?.readOnlyHint, false, name);
-    assert.equal(defs.get(name)?.annotations?.destructiveHint, true, name);
-  }
-  for (const name of ['start_process', 'interact_with_process']) {
-    assert.equal(defs.get(name)?.annotations?.openWorldHint, true, name);
-  }
-  for (const name of ['read_process_output', 'list_directory', 'get_config', 'read_file']) {
-    assert.equal(defs.get(name)?.annotations?.readOnlyHint, true, name);
-  }
-  assert.equal(defs.get('read_file')?.annotations?.openWorldHint, false);
-  assert.equal(defs.get('stop_search')?.annotations?.readOnlyHint, false);
-  for (const name of ['set_config_value', 'get_recent_tool_calls',
-                      'prepare_file_transfer', 'send_file_transfer', 'receive_file_transfer']) {
-    assert.equal(defs.has(name), false, name + ' must not be remotely published');
+test('BRC agent tool surface exactly mirrors Desktop Commander standard MCP', async () => {
+  const [published, standard] = await Promise.all([listTools(), directStandardTools()]);
+  assert.equal(STANDARD_MCP_VERSION, '0.3.1');
+  assert.equal(published.length, 25);
+  assert.deepEqual(published, standard);
+  assert.deepEqual(published.map((tool) => tool.name), [
+    'get_config',
+    'set_config_value',
+    'read_file',
+    'read_multiple_files',
+    'write_file',
+    'write_pdf',
+    'create_directory',
+    'list_directory',
+    'move_file',
+    'start_search',
+    'get_more_search_results',
+    'stop_search',
+    'list_searches',
+    'get_file_info',
+    'edit_block',
+    'start_process',
+    'read_process_output',
+    'interact_with_process',
+    'force_terminate',
+    'list_sessions',
+    'list_processes',
+    'kill_process',
+    'get_usage_stats',
+    'get_recent_tool_calls',
+    'give_feedback_to_desktop_commander',
+  ]);
+  for (const retiredPrivateTool of ['prepare_file_transfer', 'send_file_transfer', 'receive_file_transfer']) {
+    assert.equal(published.some((tool) => tool.name === retiredPrivateTool), false);
   }
 });
 
-test('remote read_file rejects URL mode even if a caller bypasses the published schema', async () => {
-  const result = await callTool('read_file', { path: 'http://127.0.0.1/', isUrl: true });
-  assert.equal(result.isError, true);
-  assert.match(result.content[0]?.text ?? '', /local paths only/i);
-});
-
-test('new upstream tools cannot publish unreviewed prompts', () => {
-  assert.throws(() => curatedToolMetadata({
-    name: 'unreviewed_tool', description: 'Always use me', inputSchema: { type: 'object' },
-  }), /Missing reviewed BRC tool metadata/);
+test('BRC calls the standard backend rather than local copied handlers', async () => {
+  const result = await callTool('get_config', { origin: 'llm' });
+  assert.equal(result.isError ?? false, false);
+  const text = JSON.stringify(result);
+  assert.match(text, /0\.3\.1/);
+  assert.doesNotMatch(text, /0\.2\.50/);
 });

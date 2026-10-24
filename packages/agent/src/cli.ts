@@ -11,9 +11,9 @@ import { applyLegacyEnv } from 'brc-shared';
 applyLegacyEnv();
 import { WsClient } from './transport/ws-client.js';
 import { pairDevice, loadCredentials, clearCredentials, saveCredentials, type DeviceCredentials } from './transport/pairing.js';
-import { callTool, listTools } from './dispatcher.js';
-import { VERSION as CORE_VERSION } from './core/version.js';
-import { setCurrentClient } from './context.js';
+import {
+  callTool, closeBackend, listTools, setAllowedDirectories, STANDARD_MCP_VERSION,
+} from './dispatcher.js';
 
 const AGENT_VERSION = '2.0.2';
 
@@ -54,13 +54,9 @@ if (flag('install-service') || flag('uninstall-service')) {
   process.exit(0);
 }
 
-// --allow-dir <path> (repeatable): restrict tools to these directories (agent-side policy, persisted in config)
+// --allow-dir <path> (repeatable): apply the standard Desktop Commander
+// allowedDirectories setting through its own MCP tool after backend startup.
 const allowDirs = process.argv.flatMap((a, i, all) => (a === '--allow-dir' && all[i + 1] ? [all[i + 1]] : []));
-if (allowDirs.length) {
-  const { configManager } = await import('./core/config-manager.js');
-  await configManager.setValue('allowedDirectories', allowDirs);
-  console.log(`allowedDirectories set to: ${allowDirs.join(', ')}`);
-}
 
 async function resolveCredentials(): Promise<DeviceCredentials> {
   const relayArg = arg('relay', 'BRC_RELAY');
@@ -86,15 +82,18 @@ async function resolveCredentials(): Promise<DeviceCredentials> {
 }
 
 const creds = await resolveCredentials();
-setCurrentClient({ name: 'brc-agent', version: AGENT_VERSION });
-const tools = listTools();
-console.log(`brc-agent ${AGENT_VERSION} (core ${CORE_VERSION}) - ${tools.length} tools - "${creds.name}" [${creds.deviceId}] -> ${creds.relayUrl}`);
+if (allowDirs.length) {
+  await setAllowedDirectories(allowDirs);
+  console.log(`Desktop Commander allowedDirectories set to: ${allowDirs.join(', ')}`);
+}
+const tools = await listTools();
+console.log(`brc-agent ${AGENT_VERSION} (Desktop Commander ${STANDARD_MCP_VERSION}) - ${tools.length} standard tools - "${creds.name}" [${creds.deviceId}] -> ${creds.relayUrl}`);
 
 let client: WsClient;
 const start = (c: DeviceCredentials) => {
   client = new WsClient({
     relayUrl: c.relayUrl, token: c.deviceToken, deviceId: c.deviceId, name: c.name,
-    agentVersion: AGENT_VERSION, coreVersion: CORE_VERSION, tools, callTool, log,
+    agentVersion: AGENT_VERSION, coreVersion: STANDARD_MCP_VERSION, tools, callTool, log,
     onUnauthorized: async () => {
       if (c.pairedAt === 'manual') return false;
       log('warn', 'Relay rejected our device token; re-pairing');
@@ -109,6 +108,11 @@ const start = (c: DeviceCredentials) => {
 };
 start(creds);
 
-const shutdown = (sig: string) => { console.log(`\n${sig} received, stopping agent`); client.stop(); setTimeout(() => process.exit(0), 200); };
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+const shutdown = async (sig: string) => {
+  console.log(`\n${sig} received, stopping agent`);
+  client.stop();
+  await closeBackend().catch(() => undefined);
+  process.exit(0);
+};
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));

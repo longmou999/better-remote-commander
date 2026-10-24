@@ -71,7 +71,8 @@ MIT — see [LICENSE](LICENSE).
 
 ## Credits
 
-The agent's tool implementation (`packages/agent/src/core`) is derived from
-[Desktop Commander MCP](https://github.com/wonderwhy-er/DesktopCommanderMCP) by Eduard Ruzga and contributors (MIT).
-Desktop Commander's hosted remote relay is proprietary; this project provides an open, self-hostable relay with the same
-device-agent model, plus OAuth for Claude/ChatGPT, device pairing, and a browser dashboard. See [NOTICE](NOTICE).
+The agent uses the official [Desktop Commander MCP](https://github.com/wonderwhy-er/DesktopCommanderMCP)
+npm package as its pinned standard MCP backend. BRC does not vendor or reimplement Desktop Commander tools: it forwards
+the backend's `tools/list` and `tools/call` over its self-hosted device relay, adding only remote device routing.
+Desktop Commander's hosted remote relay is separate; BRC provides the self-hosted relay, OAuth, pairing and dashboard.
+See [NOTICE](NOTICE).

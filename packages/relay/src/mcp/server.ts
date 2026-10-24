@@ -4,8 +4,8 @@
  * each augmented with an optional `deviceId` argument. Invocation goes through invoke.ts.
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { curatedToolMetadata } from 'brc-shared';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import type { ToolDefinition } from 'brc-shared';
 import type { DeviceHub } from '../device-hub.js';
 import type { SqliteStore } from '../store/sqlite.js';
 import { invokeTool, listUserDevices, type InvokeContext } from './invoke.js';
@@ -18,7 +18,6 @@ export const DEVICE_ID_PROP = {
 
 export function withDeviceId(schema: unknown): Record<string, unknown> {
   const s = (schema && typeof schema === 'object' ? { ...(schema as Record<string, unknown>) } : {}) as Record<string, unknown>;
-  delete s.$schema;
   s.type = 'object';
   s.properties = { ...((s.properties as Record<string, unknown>) ?? {}), ...DEVICE_ID_PROP };
   return s;
@@ -63,8 +62,16 @@ export const LIST_DEVICES_TOOL = {
 /** Live tool set for a user: union across online, non-paused devices (with deviceId prop). */
 export function liveTools(hub: DeviceHub, store: SqliteStore, userId: string) {
   const online = hub.list(userId).filter((d) => !store.getDevice(d.deviceId)?.paused);
-  const merged = new Map<string, { name: string; description: string; inputSchema: unknown; outputSchema?: unknown; annotations?: Record<string, unknown> }>();
-  for (const d of online) for (const t of hub.get(d.deviceId)?.tools ?? []) if (!merged.has(t.name)) merged.set(t.name, { ...curatedToolMetadata(t), inputSchema: withDeviceId(t.inputSchema) });
+  const merged = new Map<string, ToolDefinition>();
+  for (const d of online) {
+    for (const tool of hub.get(d.deviceId)?.tools ?? []) {
+      if (!merged.has(tool.name)) {
+        // Preserve the exact standard MCP tool object. The only relay extension is
+        // an optional deviceId routing property added to the input schema.
+        merged.set(tool.name, { ...tool, inputSchema: withDeviceId(tool.inputSchema) });
+      }
+    }
+  }
   const tools = [...merged.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   return { online: online.length, tools };
 }
@@ -89,10 +96,11 @@ export function createMcpServer(hub: DeviceHub, store: SqliteStore, ctx: McpCont
     const out = await invokeTool(hub, store, ctx, name, args as Record<string, unknown> | undefined);
     if (!out.ok) return { content: [{ type: 'text', text: out.message }], isError: true };
     return {
-      content: out.result.content,
-      ...(out.result.structuredContent ? { structuredContent: out.result.structuredContent } : {}),
-      isError: out.result.isError ?? false,
-      _meta: { deviceId: out.deviceId, deviceName: out.deviceName },
+      ...out.result,
+      _meta: {
+        ...(out.result._meta ?? {}),
+        brc: { deviceId: out.deviceId, deviceName: out.deviceName },
+      },
     } as never;
   });
 

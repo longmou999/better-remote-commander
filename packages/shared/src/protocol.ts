@@ -4,12 +4,15 @@
  */
 export const BRC_PROTOCOL_VERSION = 1;
 
+/** Standard MCP Tool object as advertised by the backend, preserved losslessly. */
 export interface ToolDefinition {
   name: string;
-  description: string;
+  description?: string;
   inputSchema: unknown;
   outputSchema?: unknown;
   annotations?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 export interface DeviceInfo {
@@ -22,12 +25,9 @@ export interface DeviceInfo {
   coreVersion: string;
 }
 
-/** MCP-compatible tool result content block (subset we relay). */
+/** Standard MCP result blocks/results are relayed without narrowing their shape. */
 export interface ContentBlock {
-  type: 'text' | 'image' | 'resource';
-  text?: string;
-  data?: string;
-  mimeType?: string;
+  type: string;
   [key: string]: unknown;
 }
 
@@ -35,6 +35,8 @@ export interface ToolResult {
   content: ContentBlock[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
+  _meta?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 /* ---------- agent -> relay ---------- */

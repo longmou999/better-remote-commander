@@ -8,7 +8,6 @@ import {
   DEFAULTS, BRC_PROTOCOL_VERSION, parseMessage,
   type AgentMessage, type RelayMessage, type CallMessage, type DeviceInfo, type ToolDefinition,
 } from 'brc-shared';
-import { setCurrentRemoteClient, setCurrentCallIsRemote } from '../context.js';
 
 export interface WsClientOptions {
   relayUrl: string;          // https://host or wss://host
@@ -132,8 +131,6 @@ export class WsClient {
 
   private async handleCall(msg: CallMessage): Promise<void> {
     this.log('debug', `call ${msg.id} ${msg.tool}`);
-    setCurrentCallIsRemote(true);
-    setCurrentRemoteClient(msg.client ?? null);
     try {
       const result = await this.opts.callTool(msg.tool, msg.args ?? {});
       this.send({ type: 'result', id: msg.id, result: result as never });

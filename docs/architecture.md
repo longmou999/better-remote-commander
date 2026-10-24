@@ -1,9 +1,10 @@
 # Better Remote Commander (BRC) architecture
 
 ## Components
-1. **Agent** (`packages/agent`, npm `brc-agent`) — runs on the machine to control. Tool core vendored from
-   Desktop Commander (MIT): files, terminal, processes, search, edit. Our transport: outbound WebSocket, device pairing,
-   credential persistence in `$BRC_HOME` (default `~/.brc`).
+1. **Agent** (`packages/agent`, npm `brc-agent`) — runs on the machine to control. It launches the pinned
+   official Desktop Commander MCP package as a local stdio backend and forwards its exact `tools/list` / `tools/call`
+   surface. BRC-owned code only adds outbound WebSocket transport, device pairing and credential persistence in
+   `$BRC_HOME` (default `~/.brc`).
 2. **Relay** (`packages/relay`, npm `brc-relay`) — self-hosted server (Express + MCP SDK). Doors:
    - `/mcp` — MCP Streamable HTTP, bearer-protected (Claude connector, ChatGPT remote MCP)
    - `/.well-known/*`, `/authorize`, `/token`, `/register`, `/revoke` — OAuth 2.0/2.1-compatible flow (S256 PKCE, dynamic client registration)
@@ -13,7 +14,7 @@
 4. **Store** — `node:sqlite` (`BRC_DB`). Postgres is a possible later addition, not required.
 
 ## Flow
-Client -> relay (`/mcp`) -> OAuth bearer -> device router -> agent (WS) -> tool -> result back. Audit row per call.
+Client -> relay (`/mcp`) -> OAuth bearer -> device router -> agent (WS) -> standard Desktop Commander MCP (stdio) -> result back. Audit row per call.
 An in-flight call belongs to its original WebSocket. Disconnects and send failures fail promptly with an unknown-outcome error; mutating calls must be read back rather than blindly replayed.
 
 MCP stays stateless at the relay boundary. Long operations use explicit existing handles such as process PID or searchId; BRC does not add a second task/session state machine. MCP Tasks are only worth considering after a real workflow requires cross-call task lifecycle semantics that these handles cannot express.
@@ -43,16 +44,15 @@ Agents anywhere connect outbound only; several agents per relay; `deviceId` sele
 ## Security
 - Agent never listens on a port; all connections outbound
 - Device tokens revocable from relay dashboard; refresh via OAuth
-- Agent-side file APIs enforce allowedDirectories; blockedCommands is best-effort convenience only, not a shell sandbox. Hard boundaries come from OS permissions plus device/client pause or revocation.
+- Desktop Commander's standard backend enforces `allowedDirectories`; `blockedCommands` remains best-effort convenience only, not a shell sandbox. Hard boundaries come from OS permissions plus device/client pause or revocation.
 - Audit log of every call (tool, args hash, device, timestamp) in store
 
 
 ## Phase 1 status (done)
 - shared: wire protocol v1 (hello/welcome/call/result/ping/pong/error), DEFAULTS
-- agent: dispatcher (24 tools, ported from upstream switch), WsClient with backoff reconnect + pong watchdog, CLI (--relay --token --name --device-id --debug)
+- agent: standard MCP proxy to pinned Desktop Commander (25 tools in 0.3.1), WsClient with backoff reconnect + pong watchdog, CLI (--relay --token --name --device-id --debug)
 - relay: Fastify + @fastify/websocket, DeviceHub (call/result matching, heartbeat, stale-socket replacement), /health, /ws, /debug/devices, /debug/tools, /debug/call
-- agent uses ~/.brc (BRC_HOME) - never touches Desktop Commander's ~/.claude-server-commander
-- upstream telemetry hard-off unless BRC_UPSTREAM_TELEMETRY=1
+- `~/.brc` (BRC_HOME) owns only BRC pairing/transport state. Desktop Commander keeps its own standard configuration and telemetry settings; BRC does not fork them.
 - smoke test: read_file 8 ms, start_process 579 ms via relay; agent survives relay restart
 
 ### Run locally

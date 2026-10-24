@@ -1,8 +1,9 @@
 # brc-agent
 
 Device agent for **Better Remote Commander** — self-hosted remote control of your computers from Claude and ChatGPT.
-Runs on the machine you want to control and connects *outbound* to your own `brc-relay`. Exposes files, terminal and
-processes (24 tools, same tool set as Desktop Commander) to any AI client authorized on the relay.
+Runs on the machine you want to control and connects *outbound* to your own `brc-relay`. It starts the pinned
+official Desktop Commander MCP backend locally and exposes that backend's exact standard tool surface (25 tools in
+Desktop Commander 0.3.1) to any AI client authorized on the relay.
 
 ## Install
 
@@ -43,4 +44,4 @@ brc-agent --uninstall-service
 Full project, relay setup (Docker, Cloudflare Tunnel, VPS) and security notes:
 https://github.com/shahidx0x/better-remote-commander
 
-License MIT. Tool core derived from [Desktop Commander MCP](https://github.com/wonderwhy-er/DesktopCommanderMCP) (MIT).
+License MIT. Runtime tool backend: [Desktop Commander MCP](https://github.com/wonderwhy-er/DesktopCommanderMCP) 0.3.1 (MIT), used unmodified through standard MCP stdio.
