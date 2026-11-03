@@ -10,6 +10,7 @@ import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { ToolDefinition, ToolResult } from 'brc-shared';
+import { retryNotConnectedOnce } from './backend-recovery.js';
 
 export const STANDARD_MCP_PACKAGE = '@wonderwhy-er/desktop-commander';
 export const STANDARD_MCP_VERSION = '0.3.1';
@@ -50,6 +51,14 @@ async function backend(): Promise<Client> {
   return opening;
 }
 
+async function invalidateBackend(failed: Client): Promise<void> {
+  if (client !== failed) return;
+  client = null;
+  opening = null;
+  transport = null;
+  try { await failed.close(); } catch { /* stale/disconnected backend */ }
+}
+
 export async function listTools(): Promise<ToolDefinition[]> {
   if (!cachedTools) {
     const standard = await (await backend()).listTools();
@@ -65,9 +74,11 @@ export async function hasTool(name: string): Promise<boolean> {
 }
 
 export async function callTool(name: string, args: Record<string, unknown> = {}): Promise<ToolResult> {
-  const standard = await backend();
-  const result = await standard.callTool({ name, arguments: args });
-  return result as ToolResult;
+  return retryNotConnectedOnce(
+    backend,
+    invalidateBackend,
+    async (standard) => (await standard.callTool({ name, arguments: args })) as ToolResult,
+  );
 }
 
 export async function setAllowedDirectories(paths: string[]): Promise<void> {
